@@ -1,0 +1,109 @@
+import os
+import re
+import json
+
+# Define the paths
+TARGET_DIR = r"C:\Users\asus\Documents\hpe\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\sumservice\ci\var\fwdrivers\installsets"
+LOG_FILE_PATH = r"C:\Users\asus\Documents\hpe\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\appliance\ci\logs\ciDebug.log"  # Update this with the actual log file path
+
+def fetch_folders(directory):
+    """Fetch all folder names from the given directory."""
+    try:
+        return [f for f in os.listdir(directory) if os.path.isdir(os.path.join(directory, f))]
+    except FileNotFoundError:
+        print(f"Error: Directory '{directory}' not found.")
+        return []
+
+def filter_valid_matches(matches):
+    """Filter out matches that contain 'Members' as an empty array."""
+    return [line for line in matches if not re.search(r'"Members"\s*:\s*\[\s*\]', line)]
+
+def clean_incomplete_members(parsed_data):
+    """Remove incomplete or malformed entries from the 'Members' array."""
+    if "Members" not in parsed_data:
+        return parsed_data  # Return as-is if 'Members' key is missing
+
+    cleaned_members = []
+    for member in parsed_data.get("Members", []):
+        # Check if the member is a valid dictionary and contains required keys
+        if isinstance(member, dict) and all(key in member for key in ["Name", "Filename", "UpdatableBy", "Component", "State", "Modified"]):
+            cleaned_members.append(member)
+        else:
+            print(f"Warning: Incomplete or malformed member skipped: {member}")
+    
+    # Replace the 'Members' array with the cleaned version
+    parsed_data["Members"] = cleaned_members
+    return parsed_data
+
+def parse_members_from_match(match_line):
+    """Extract details from the 'Members' key in the match line and return as a list of dictionaries."""
+    details_list = []
+    try:
+        # Extract the server UUID
+        server_uuid = re.search(r"server (\S+)", match_line).group(1)
+        
+        # Extract the JSON-like structure
+        json_start = match_line.find("is {") + 3
+        json_data = match_line[json_start:].strip()
+        parsed_data = json.loads(json_data)
+
+        # Clean incomplete or malformed members
+        parsed_data = clean_incomplete_members(parsed_data)
+
+        # Iterate over the "Members" array to extract details
+        for member in parsed_data.get("Members", []):
+            details = {
+                "server_uuid": server_uuid,
+                "name": member.get("Name"),
+                "filename": member.get("Filename"),
+                "updatableBy": member.get("UpdatableBy"),
+                "component": member.get("Component"),
+                "state": member.get("State"),
+                "timestamp": member.get("Modified"),
+            }
+            details_list.append(details)
+    except (AttributeError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not extract details from line: {match_line}. Error: {e}")
+    return details_list
+
+def search_log_for_uuid(log_file, uuids):
+    """Search the log file for occurrences of 'task queue details of the firmware update on server <uuid>' and filter results."""
+    if not os.path.exists(log_file):
+        print(f"Error: Log file '{log_file}' not found.")
+        return
+    
+    with open(log_file, 'r', encoding='utf-8') as file:
+        log_content = file.readlines()
+    
+    pattern = re.compile(r"task queue details of the firmware update on server (\S+)")
+    matches = []
+    
+    for line in log_content:
+        match = pattern.search(line)
+        if match and match.group(1) in uuids:
+            matches.append(line.strip())
+    
+    filtered_matches = filter_valid_matches(matches)
+    
+    server_details = []
+    for match in filtered_matches:
+        details = parse_members_from_match(match)
+        if details:
+            server_details.extend(details)  # Append all extracted details
+    
+    for details in server_details:
+        print(f"\nServer Details: {details}\n")
+    
+    return server_details
+
+def main():
+    folders = fetch_folders(TARGET_DIR)
+    if not folders:
+        print("No folders found in the directory.")
+        return
+    
+    print(f"Fetched {len(folders)} folder names from '{TARGET_DIR}'")
+    search_log_for_uuid(LOG_FILE_PATH, folders)
+
+if __name__ == "__main__":
+    main()
