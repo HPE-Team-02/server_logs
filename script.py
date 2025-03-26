@@ -7,8 +7,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Define the paths
-TARGET_DIR = r"D:\sem-6\HPE\SupportDump-20250323T053844Z-001\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\sumservice\ci\var\fwdrivers\installsets"
-LOG_FILE_PATH = r"D:\sem-6\HPE\SupportDump-20250323T053844Z-001\SupportDump\CSFE-64399_ilo_component_failure\appliance\ci\logs\ciDebug.log"
+TARGET_DIR = r"C:\PES\HPE\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\sumservice\ci\var\fwdrivers\installsets"
+LOG_FILE_PATH = r"C:\PES\HPE\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\appliance\ci\logs\ciDebug.log"
 
 # Load environment variables from .env file
 load_dotenv()
@@ -114,7 +114,8 @@ def parse_members_from_match(match_line):
                 "state": member.get("State"),
                 "timestamp": member.get("Modified"),
             }
-            details_list.append(details)
+            if details["state"] == "Exception":   
+                details_list.append(details)
     except (AttributeError, json.JSONDecodeError) as e:
         print(f"Warning: Could not extract details from line: {match_line}. Error: {e}")
     return details_list
