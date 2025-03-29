@@ -7,8 +7,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Define the paths
-TARGET_DIR = r"C:\PES\HPE\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\sumservice\ci\var\fwdrivers\installsets"
-LOG_FILE_PATH = r"C:\PES\HPE\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\appliance\ci\logs\ciDebug.log"
+# TARGET_DIR = r"C:\PES\HPE\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\sumservice\ci\var\fwdrivers\installsets"
+# LOG_FILE_PATH = r"C:\PES\HPE\SupportDump\CSFE-64399_ilo_component_failure\CN7544043XX_appliance_bay_1-corpus-cristi.proto.lab-CI-2025_02_13-10_52_27\appliance\ci\logs\ciDebug.log"
 
 # Load environment variables from .env file
 load_dotenv()
@@ -148,13 +148,13 @@ def search_log_for_uuid(log_file, uuids):
     return server_details
 
 def main():
-    folders = fetch_folders(TARGET_DIR)
+    folders = fetch_folders(os.getenv('TARGET_DIR'))
     if not folders:
         print("No folders found in the directory.")
         return
     
-    print(f"Fetched {len(folders)} folder names from '{TARGET_DIR}'")
-    server_details = search_log_for_uuid(LOG_FILE_PATH, folders)
+    print(f"Fetched {len(folders)} folder names from '{os.getenv('TARGET_DIR')}'")
+    server_details = search_log_for_uuid(os.getenv("LOG_FILE_PATH"), folders)
 
     if server_details:
         insert_into_db(server_details)
