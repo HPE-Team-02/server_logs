@@ -46,7 +46,7 @@ else:
         """
         
         try:
-            timestamp = datetime.utcnow()  # Current timestamp
+            timestamp = datetime.now(datetime.timezone.utc) # Current timestamp
             cursor.execute(query, (server_uuid, "NA", "NA", "NA", "NA", "ERROR in staging", timestamp))
             connection.commit()
             print(f"Inserted error log for server UUID: {server_uuid}")
