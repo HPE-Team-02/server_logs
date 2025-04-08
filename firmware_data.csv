@@ -1,0 +1,6 @@
+id,server_uuid,name,filename,updatableBy,component,state,timestamp
+1,39313738-3634-584D-5138-313030333744,Online ROM Flash Firmware Package - HPE Integrated Lights-Out 5,ilo5_311_p07.fwpkg,"[""Bmc""]",/redfish/v1/UpdateService/ComponentRepository/6d531e95/,Exception,2025-02-13T07:22:38
+2,39313738-3634-584D-5138-313030333744,Online ROM Flash Firmware Package - HPE Integrated Lights-Out 5,ilo5_311_p07.fwpkg,"[""Bmc""]",/redfish/v1/UpdateService/ComponentRepository/6d531e95/,Exception,2025-02-13T07:22:38
+3,39313738-3634-584D-5138-313030333744,Online ROM Flash Firmware Package - HPE Integrated Lights-Out 5,ilo5_311_p07.fwpkg,"[""Bmc""]",/redfish/v1/UpdateService/ComponentRepository/6d531e95/,Exception,2025-02-13T07:22:38
+4,39313738-3634-584D-5138-313030333744,Online ROM Flash Firmware Package - HPE Integrated Lights-Out 5,ilo5_311_p07.fwpkg,"[""Bmc""]",/redfish/v1/UpdateService/ComponentRepository/6d531e95/,Exception,2025-02-13T09:10:57
+5,39313738-3634-584D-5138-313030333744,Online ROM Flash Firmware Package - HPE Integrated Lights-Out 5,ilo5_311_p07.fwpkg,"[""Bmc""]",/redfish/v1/UpdateService/ComponentRepository/6d531e95/,Exception,2025-02-13T09:10:57
