@@ -281,6 +281,10 @@ def extract_firmware_log_info(log_path, uuid, info_dict):
                 match = re.search(r'FirmwareDriverBaselineSettings on server .*? is (.*)', line)
                 if match:
                     install_state = match.group(1).strip()
+                    print(f"Install state found: {install_state}")
+                    pattern = r'"State"\s*:\s*"([^"]*)"'
+                    install_state = re.search(pattern, install_state)
+                    install_state = install_state.group(1) if install_state else "Unknown"
                     break
 
         info_dict["Firmware Update"]["SPP Used"] = spp_used
