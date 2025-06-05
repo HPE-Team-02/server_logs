@@ -28,12 +28,10 @@ def fetch_data_from_mongo():
     doc["_id"] = str(doc["_id"])
     return doc
 
-def dict_to_df(data: dict):
-    # Converts dictionary to a DataFrame with columns: Key | Value
-    if not data:
-        return pd.DataFrame(columns=["Key", "Value"])
-    df = pd.DataFrame(list(data.items()), columns=["Key", "Value"])
-    return df
+def dict_to_df(d: dict):
+    if not d:
+        return pd.DataFrame()
+    return pd.DataFrame(list(d.items()), columns=["Key", "Value"])
 
 def build_dashboard():
     mongo_data = fetch_data_from_mongo()
@@ -42,13 +40,19 @@ def build_dashboard():
     succeeded = 263
     failed = 19
 
-    # MongoDB Sections as DataFrames
+    # Success/Failure Summary table
+    summary_df = pd.DataFrame({
+        "Status": ["Total Tasks", "Succeeded", "Failed"],
+        "Count": [total_tasks, succeeded, failed]
+    })
+
+    # Prepare dataframes for info sections
     oneview_df = dict_to_df(mongo_data.get("OneView", {}))
     server_df = dict_to_df(mongo_data.get("Server", {}))
     firmware_df = dict_to_df(mongo_data.get("Firmware Update", {}))
     install_set_df = dict_to_df(mongo_data.get("Install set Response", {}))
 
-    # Error Table (static SHFW errors)
+    # Static SHFW errors
     error_df = pd.DataFrame({
         "SHFW Code": ["SHFW_036", "SHFW_001", "SHFW_007", "SHFW_012"],
         "Occurrences": [7, 5, 2, 1],
@@ -63,6 +67,7 @@ def build_dashboard():
     # Failed Tasks Table
     failed_tasks_df = pd.DataFrame({
         "Task ID": [f"TASK_{str(i).zfill(3)}" for i in range(1, failed + 1)],
+        "Customer": ["TODO"] * failed,
         "Error Code": [random.choice(error_df["SHFW Code"]) for _ in range(failed)],
         "Timestamp": pd.to_datetime(['2023-01-01 00:00:00'] * failed) +
                      pd.to_timedelta([f'{i*2}h {i*15}m' for i in range(failed)]),
@@ -75,28 +80,37 @@ def build_dashboard():
         names=["Success", "Component Failure"],
         values=[succeeded, failed],
         hole=0.5,
-        title="Task Outcome Breakdown"
+        title="🔧 Task Outcome Breakdown"
     )
     pie_fig.update_traces(textinfo='percent+label')
 
-    return oneview_df, server_df, firmware_df, install_set_df, pie_fig, failed_tasks_df, error_df
+    return (
+        summary_df,
+        oneview_df, server_df,
+        firmware_df, install_set_df,
+        pie_fig, failed_tasks_df, error_df
+    )
 
 with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
-    gr.Markdown("## Firmware Update Dashboard ")
+    gr.Markdown("## 🔍 Firmware Update Dashboard ")
 
-    refresh_btn = gr.Button("Refresh Data", variant="primary", elem_id="refresh_button")
+    refresh_btn = gr.Button("🔄 Refresh Data", variant="primary")
 
-    # MongoDB info tables
+    summary_table = gr.Dataframe(label="📈 Task Summary", interactive=False)
+
     with gr.Row():
-        oneview_table = gr.Dataframe(label="OneView Info", interactive=False)
-        server_table = gr.Dataframe(label="Server Info", interactive=False)
+        oneview_table = gr.Dataframe(label="🗂️ OneView Info", interactive=False)
+        server_table = gr.Dataframe(label="🗂️ Server Info", interactive=False)
+
     with gr.Row():
-        firmware_table = gr.Dataframe(label="Firmware Update Info", interactive=False)
-        install_set_table = gr.Dataframe(label="Install Set Response", interactive=False)
+        firmware_table = gr.Dataframe(label="🗂️ Firmware Update Info", interactive=False)
+        install_set_table = gr.Dataframe(label="🗂️ Install Set Response", interactive=False)
 
     chart_output = gr.Plot()
-    failed_table = gr.Dataframe(label="Failed Tasks (Component Failures Only)", interactive=False)
-    error_table = gr.Dataframe(label="SHFW Component Error Log", interactive=False)
+    error_table = gr.Dataframe(label="📋 SHFW Component Error Log", interactive=False)
+
+    with gr.Accordion("🛑 Failed Tasks (Component Failures Only)", open=False):
+        failed_table = gr.Dataframe(interactive=False)
 
     def refresh_data():
         return build_dashboard()
@@ -104,6 +118,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
     refresh_btn.click(
         refresh_data,
         outputs=[
+            summary_table,
             oneview_table, server_table,
             firmware_table, install_set_table,
             chart_output, failed_table, error_table
@@ -113,6 +128,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
     dashboard.load(
         build_dashboard,
         outputs=[
+            summary_table,
             oneview_table, server_table,
             firmware_table, install_set_table,
             chart_output, failed_table, error_table
