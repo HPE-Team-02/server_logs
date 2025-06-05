@@ -7,28 +7,30 @@ import pandas as pd
 import plotly.express as px
 import random
 
+# Load environment variables
 load_dotenv()
 
-username = quote_plus(os.getenv("MONGO_USER"))
-password = quote_plus(os.getenv("MONGO_PASS"))
-host = os.getenv("MONGO_HOST")
-port = os.getenv("MONGO_PORT")
-db_name = os.getenv("MONGO_DB")
+# Setup MongoDB connection
+username = quote_plus(os.getenv("MONGO_USER") or "")
+password = quote_plus(os.getenv("MONGO_PASS") or "")
+host = os.getenv("MONGO_HOST") or "localhost"
+port = os.getenv("MONGO_PORT") or "27017"
+db_name = os.getenv("MONGO_DB") or "mydb"
 
 uri = f"mongodb://{username}:{password}@{host}:{port}/{db_name}?authSource=admin"
 client = MongoClient(uri)
 db = client[db_name]
 collection = db["extracted_info"]
 
-
+# Fetch data from MongoDB
 def fetch_data_from_mongo():
     doc = collection.find_one()
     if not doc:
         return None
-    doc["_id"] = str(doc["_id"])
+    doc["_id"] = str(doc["_id"])  # Convert ObjectId to str
     return doc
 
-
+# Process and build dashboard data
 def build_dashboard_data(mongo_data):
     if mongo_data is None:
         mongo_data = {
@@ -91,101 +93,48 @@ def build_dashboard_data(mongo_data):
         "succeeded": str(succeeded),
         "failed": str(failed),
         "oneview_ov_version": mongo_data.get("OneView", {}).get("OV version", "N/A"),
+        "oneview_type": mongo_data.get("OneView", {}).get("OV Type", "N/A"),
         "firmware_spp_used": mongo_data.get("Firmware Update", {}).get("SPP Used", "N/A"),
         "firmware_install_state": mongo_data.get("Firmware Update", {}).get("Install state", "N/A"),
-        "install_sum_version": mongo_data.get("Install set Response", {}).get("SUM Version", "N/A"),
-        "server_gen": mongo_data.get("Server", {}).get("Gen", "N/A"),
-        "server_os": mongo_data.get("Server", {}).get("OS", "N/A"),
+        "sum_version": mongo_data.get("Install set Response", {}).get("SUM Version", "N/A"),
+        "fig": fig,
         "failed_jobs_df": failed_jobs_df,
-        "components_df": pd.DataFrame(mongo_data.get("Components", [])),
-        "error_pie_fig": fig,
-        "customer_success_df": customer_success_df,
-        "error_df": error_df
+        "error_df": error_df,
+        "customer_success_df": customer_success_df
     }
 
+# Fetch and build data
+mongo_data = fetch_data_from_mongo()
+dashboard_data = build_dashboard_data(mongo_data)
 
-def refresh_dashboard():
-    mongo_data = fetch_data_from_mongo()
-    data = build_dashboard_data(mongo_data)
-    # Return all UI elements in order of output
-    return (
-        data["success_rate"],
-        data["total_jobs"],
-        data["succeeded"],
-        data["failed"],
-        data["oneview_ov_version"],
-        data["firmware_spp_used"],
-        data["firmware_install_state"],
-        data["install_sum_version"],
-        data["server_gen"],
-        data["server_os"],
-        data["failed_jobs_df"],
-        data["components_df"],
-        data["error_pie_fig"],
-        data["customer_success_df"],
-        data["error_df"]
-    )
-
-
+# Gradio Dashboard
 with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
     gr.Markdown("# 🔧 Firmware Update Summary Dashboard")
 
     with gr.Row():
-        with gr.Column(scale=1):
+        with gr.Column():
             gr.Markdown("## 📊 Job Overview")
-            success_label = gr.Label(label="✅ Success Rate")
-            total_jobs_label = gr.Label(label="📁 Total Jobs")
-            succeeded_label = gr.Label(label="✔️ Succeeded")
-            failed_label = gr.Label(label="❌ Failed")
+            gr.Label(value=dashboard_data["success_rate"], label="✅ Success Rate")
+            gr.Label(value=dashboard_data["total_jobs"], label="📁 Total Jobs")
+            gr.Label(value=dashboard_data["succeeded"], label="✔️ Succeeded")
+            gr.Label(value=dashboard_data["failed"], label="❌ Failed")
 
-        with gr.Column(scale=1):
+        with gr.Column():
             gr.Markdown("## 🛠️ OneView Info")
-            ov_version = gr.Textbox(label="OV Version", interactive=False)
-            spp_used = gr.Textbox(label="SPP Used", interactive=False)
-            install_state = gr.Textbox(label="Install State", interactive=False)
-            sum_version = gr.Textbox(label="SUM Version", interactive=False)
-            server_gen = gr.Textbox(label="Server Gen", interactive=False)
-            server_os = gr.Textbox(label="OS", interactive=False)
+            gr.Textbox(value=dashboard_data["oneview_ov_version"], label="OV Version")
+            gr.Textbox(value=dashboard_data["oneview_type"], label="OV Type")
+            gr.Textbox(value=dashboard_data["firmware_spp_used"], label="SPP Used")
+            gr.Textbox(value=dashboard_data["firmware_install_state"], label="Install State")
+            gr.Textbox(value=dashboard_data["sum_version"], label="SUM Version")
 
-    refresh_btn = gr.Button("🔄 Refresh Data")
+    gr.Markdown("### 📉 Error Distribution")
+    gr.Plot(value=dashboard_data["fig"])
 
-    with gr.Accordion("🚨 Failed Job Details (click to expand)", open=False):
-        failed_jobs_df = gr.Dataframe(headers=["Job ID", "Customer Name", "Error Code", "Timestamp", "Failed Component", "Details"])
+    gr.Markdown("### 🔁 Customer Success Summary")
+    gr.Dataframe(value=dashboard_data["customer_success_df"])
 
-    gr.Markdown("## 🧩 Component Versions")
-    components_df = gr.Dataframe(headers=["Installed Version", "To Version", "DeviceClass", "TargetGUID", "FileName"])
+    gr.Markdown("### ❌ Failed Jobs Log")
+    gr.Dataframe(value=dashboard_data["failed_jobs_df"])
 
-    gr.Markdown("## 📈 Error Distribution")
-    error_pie = gr.Plot()
-
-    gr.Markdown("## 🧑‍💻 Customer Success Overview")
-    customer_success_table = gr.Dataframe()
-
-    gr.Markdown("## ❗ FWE Occurrences")
-    error_table = gr.Dataframe()
-
-    # Hook up refresh button to update all outputs
-    refresh_btn.click(
-        fn=refresh_dashboard,
-        inputs=[],
-        outputs=[
-            success_label,
-            total_jobs_label,
-            succeeded_label,
-            failed_label,
-            ov_version,
-            spp_used,
-            install_state,
-            sum_version,
-            server_gen,
-            server_os,
-            failed_jobs_df,
-            components_df,
-            error_pie,
-            customer_success_table,
-            error_table
-        ],
-        queue=True
-    )
-
+# Launch dashboard
 dashboard.launch()
