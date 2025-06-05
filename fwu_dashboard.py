@@ -19,7 +19,7 @@ db_name = os.getenv("MONGO_DB")
 uri = f"mongodb://{username}:{password}@{host}:{port}/{db_name}?authSource=admin"
 client = MongoClient(uri)
 db = client[db_name]
-collection = db["extracted_info"]
+collection = db["CSFE-64399_ilo_component_failure"]
 
 def fetch_data_from_mongo():
     doc = collection.find_one()
@@ -51,6 +51,7 @@ def build_dashboard():
     server_df = dict_to_df(mongo_data.get("Server", {}))
     firmware_df = dict_to_df(mongo_data.get("Firmware Update", {}))
     install_set_df = dict_to_df(mongo_data.get("Install set Response", {}))
+    components_df = pd.DataFrame(mongo_data.get("Components", []))  # <-- New
 
     # Static SHFW errors
     error_df = pd.DataFrame({
@@ -88,6 +89,7 @@ def build_dashboard():
         summary_df,
         oneview_df, server_df,
         firmware_df, install_set_df,
+        components_df,  # <-- New return
         pie_fig, failed_tasks_df, error_df
     )
 
@@ -106,6 +108,8 @@ with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
         firmware_table = gr.Dataframe(label="🗂️ Firmware Update Info", interactive=False)
         install_set_table = gr.Dataframe(label="🗂️ Install Set Response", interactive=False)
 
+    components_table = gr.Dataframe(label="🧩 Component-Level Data", interactive=False)  # <-- New section
+
     chart_output = gr.Plot()
     error_table = gr.Dataframe(label="📋 SHFW Component Error Log", interactive=False)
 
@@ -121,6 +125,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
             summary_table,
             oneview_table, server_table,
             firmware_table, install_set_table,
+            components_table,  # <-- New output
             chart_output, failed_table, error_table
         ]
     )
@@ -131,6 +136,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
             summary_table,
             oneview_table, server_table,
             firmware_table, install_set_table,
+            components_table,  # <-- New output
             chart_output, failed_table, error_table
         ]
     )
