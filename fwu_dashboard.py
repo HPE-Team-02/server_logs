@@ -1,15 +1,16 @@
 import os
-from pymongo import MongoClient
-from dotenv import load_dotenv
-from urllib.parse import quote_plus
-import gradio as gr
-import pandas as pd
-import plotly.express as px
 import random
+import pandas as pd
+from pymongo import MongoClient
+from bson import ObjectId
+from urllib.parse import quote_plus
+from dotenv import load_dotenv
+import gradio as gr
+import plotly.express as px
 
-# Load .env values
 load_dotenv()
 
+# MongoDB connection
 username = quote_plus(os.getenv("MONGO_USER"))
 password = quote_plus(os.getenv("MONGO_PASS"))
 host = os.getenv("MONGO_HOST")
@@ -19,126 +20,141 @@ db_name = os.getenv("MONGO_DB")
 uri = f"mongodb://{username}:{password}@{host}:{port}/{db_name}?authSource=admin"
 client = MongoClient(uri)
 db = client[db_name]
-collection = db["CSFE-64399_ilo_component_failure"]
+collections_list = db.list_collection_names()
 
-def fetch_data_from_mongo():
-    doc = collection.find_one()
-    if not doc:
-        return {}
-    doc["_id"] = str(doc["_id"])
-    return doc
+# Fetch and parse DB content
+def fetch_all_tasks(collection_name):
+    collection = db[collection_name]
+    return list(collection.find())
 
-def dict_to_df(d: dict):
+def build_summary(num_failures):
+    successes = random.randint(num_failures + 1, num_failures + 10)
+    total = successes + num_failures
+    summary = pd.DataFrame({
+        "Status": ["Total Tasks", "Succeeded", "Failed"],
+        "Count": [total, successes, num_failures]
+    })
+    return summary, successes
+
+def extract_failed_tasks_from_all_collections():
+    failed_records = []
+    for collection in collections_list:
+        docs = fetch_all_tasks(collection)
+        for doc in docs:
+            failed_records.append({
+                "_id": str(doc["_id"]),
+                "Collection": collection,
+                "Task": doc.get("Server", {}).get("Task ID", "N/A"),
+                "Component Count": len(doc.get("Components", []))
+            })
+    return pd.DataFrame(failed_records)
+
+def dict_to_df(d):
     if not d:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["Key", "Value"])
     return pd.DataFrame(list(d.items()), columns=["Key", "Value"])
 
-def build_dashboard():
-    mongo_data = fetch_data_from_mongo()
+def show_task_details(collection_name, task_id):
+    collection = db[collection_name]
+    doc = collection.find_one({"_id": ObjectId(task_id)})
+    if not doc:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    total_tasks = 282
-    succeeded = 263
-    failed = 19
-
-    # Success/Failure Summary table
-    summary_df = pd.DataFrame({
-        "Status": ["Total Tasks", "Succeeded", "Failed"],
-        "Count": [total_tasks, succeeded, failed]
-    })
-
-    # Prepare dataframes for info sections
-    oneview_df = dict_to_df(mongo_data.get("OneView", {}))
-    server_df = dict_to_df(mongo_data.get("Server", {}))
-    firmware_df = dict_to_df(mongo_data.get("Firmware Update", {}))
-    install_set_df = dict_to_df(mongo_data.get("Install set Response", {}))
-    components_df = pd.DataFrame(mongo_data.get("Components", []))  # <-- New
-
-    # Static SHFW errors
-    error_df = pd.DataFrame({
-        "SHFW Code": ["SHFW_036", "SHFW_001", "SHFW_007", "SHFW_012"],
-        "Occurrences": [7, 5, 2, 1],
-        "Error Description": [
-            "Component failure",
-            "Online firmware update failed",
-            "Dependency on newer driver versions",
-            "SUT hung for over 2 hours"
-        ]
-    })
-
-    # Failed Tasks Table
-    failed_tasks_df = pd.DataFrame({
-        "Task ID": [f"TASK_{str(i).zfill(3)}" for i in range(1, failed + 1)],
-        "Customer": ["TODO"] * failed,
-        "Error Code": [random.choice(error_df["SHFW Code"]) for _ in range(failed)],
-        "Timestamp": pd.to_datetime(['2023-01-01 00:00:00'] * failed) +
-                     pd.to_timedelta([f'{i*2}h {i*15}m' for i in range(failed)]),
-        "Failed Component": [f"comp_{random.randint(1,3)}.rpm" for _ in range(failed)],
-        "Details": [f"Investigation needed for TASK_{str(i).zfill(3)}." for i in range(1, failed + 1)]
-    })
-
-    # Pie Chart (Success vs Component Failure)
-    pie_fig = px.pie(
-        names=["Success", "Component Failure"],
-        values=[succeeded, failed],
-        hole=0.5,
-        title="🔧 Task Outcome Breakdown"
-    )
-    pie_fig.update_traces(textinfo='percent+label')
+    components = pd.DataFrame(doc.get("Components", []))
+    if "deviceClass" in components.columns:
+        components = components.drop(columns=["deviceClass"])
 
     return (
-        summary_df,
-        oneview_df, server_df,
-        firmware_df, install_set_df,
-        components_df,  # <-- New return
-        pie_fig, failed_tasks_df, error_df
+        dict_to_df(doc.get("OneView", {})),
+        dict_to_df(doc.get("Server", {})),
+        dict_to_df(doc.get("Firmware Update", {})),
+        dict_to_df(doc.get("Install set Response", {})),
+        components
     )
 
-with gr.Blocks(theme=gr.themes.Soft()) as dashboard:
-    gr.Markdown("## 🔍 Firmware Update Dashboard ")
+def make_pie_chart(successes, failures):
+    df = pd.DataFrame({"Status": ["Succeeded", "Failed"], "Count": [successes, failures]})
+    fig = px.pie(df, names="Status", values="Count", title="Task Status Distribution")
+    return fig
 
-    refresh_btn = gr.Button("🔄 Refresh Data", variant="primary")
+# UI
+dashboard = gr.Blocks(theme=gr.themes.Soft())
 
-    summary_table = gr.Dataframe(label="📈 Task Summary", interactive=False)
+with dashboard:
+    gr.Markdown("## 📊 Firmware Update Summary Dashboard")
 
+    # ⬆️ Move Failed Tasks section to the top for better accessibility
+    failed_section = gr.Accordion("🛑 Failed Tasks", open=True)  # Set to open by default for convenience
+    with failed_section:
+        collection_selector = gr.Dropdown(choices=collections_list, label="Select Collection to View Failed Tasks")
+        load_btn = gr.Button("🔄 Load Data")
+        failed_tasks_df = gr.Dataframe(interactive=False, label="Failed Tasks")
+
+    # 👇 Keep the summary and chart below
+    summary_df = gr.Dataframe(label="Task Summary", interactive=False)
+    pie_plot = gr.Plot(label="Task Status Pie Chart")
+
+    gr.Markdown("### 📂 Selected Task Info")
     with gr.Row():
-        oneview_table = gr.Dataframe(label="🗂️ OneView Info", interactive=False)
-        server_table = gr.Dataframe(label="🗂️ Server Info", interactive=False)
-
+        oneview_df = gr.Dataframe(label="OneView", interactive=False)
+        server_df = gr.Dataframe(label="Server", interactive=False)
     with gr.Row():
-        firmware_table = gr.Dataframe(label="🗂️ Firmware Update Info", interactive=False)
-        install_set_table = gr.Dataframe(label="🗂️ Install Set Response", interactive=False)
+        firmware_df = gr.Dataframe(label="Firmware Update", interactive=False)
+        install_df = gr.Dataframe(label="Install Set Response", interactive=False)
+    components_df = gr.Dataframe(label="Components", interactive=False)
 
-    components_table = gr.Dataframe(label="🧩 Component-Level Data", interactive=False)  # <-- New section
+    # State
+    state_failed_tasks = gr.State()
+    state_current_collection = gr.State()
+    state_successes = gr.State()
 
-    chart_output = gr.Plot()
-    error_table = gr.Dataframe(label="📋 SHFW Component Error Log", interactive=False)
+    def on_load(collection_name):
+        tasks = fetch_all_tasks(collection_name)
+        failed_df = pd.DataFrame([
+            {
+                "_id": str(task["_id"]),
+                "Task": task.get("Server", {}).get("Task ID", "N/A"),
+                "Component Count": len(task.get("Components", []))
+            } for task in tasks
+        ])
+        summary, successes = build_summary(len(failed_df))
+        
+        # Empty DataFrames for clearing task details
+        empty_df = pd.DataFrame()
+        return (
+            failed_df.to_dict(),
+            failed_df,
+            summary,
+            make_pie_chart(successes, len(failed_df)),
+            collection_name,
+            successes,
+            empty_df, empty_df, empty_df, empty_df, empty_df
+        )
 
-    with gr.Accordion("🛑 Failed Tasks (Component Failures Only)", open=False):
-        failed_table = gr.Dataframe(interactive=False)
 
-    def refresh_data():
-        return build_dashboard()
+    def on_task_select(evt: gr.SelectData, tasks_dict, collection_name):
+        df = pd.DataFrame(tasks_dict)
+        row_index = evt.index[0]
+        task_id = df.at[row_index, "_id"]
+        return show_task_details(collection_name, task_id)
 
-    refresh_btn.click(
-        refresh_data,
+    load_btn.click(
+        on_load,
+        inputs=[collection_selector],
         outputs=[
-            summary_table,
-            oneview_table, server_table,
-            firmware_table, install_set_table,
-            components_table,  # <-- New output
-            chart_output, failed_table, error_table
+            state_failed_tasks,
+            failed_tasks_df,
+            summary_df,
+            pie_plot,
+            state_current_collection,
+            state_successes
         ]
     )
 
-    dashboard.load(
-        build_dashboard,
-        outputs=[
-            summary_table,
-            oneview_table, server_table,
-            firmware_table, install_set_table,
-            components_table,  # <-- New output
-            chart_output, failed_table, error_table
-        ]
+    failed_tasks_df.select(
+        on_task_select,
+        inputs=[state_failed_tasks, state_current_collection],
+        outputs=[oneview_df, server_df, firmware_df, install_df, components_df]
     )
 
 dashboard.launch()
