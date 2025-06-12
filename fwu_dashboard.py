@@ -160,4 +160,4 @@ with dashboard:
         outputs=[summary_df, pie_plot]
     )
 
-dashboard.launch()
+dashboard.launch(server_name="0.0.0.0", server_port=7860)
