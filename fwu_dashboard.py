@@ -62,7 +62,14 @@ def show_task_details(collection_name, task_id):
 
 def make_pie_chart(successes, failures):
     df = pd.DataFrame({"Status": ["Succeeded", "Failed"], "Count": [successes, failures]})
-    return px.pie(df, names="Status", values="Count", title="Task Status Distribution")
+    return px.pie(
+        df,
+        names="Status",
+        values="Count",
+        title="Task Status Distribution",
+        color="Status",
+        color_discrete_map={"Succeeded": "green", "Failed": "red"}
+    )
 
 # Gradio UI
 dashboard = gr.Blocks(theme=gr.themes.Soft())
@@ -76,8 +83,7 @@ with dashboard:
         pie_plot = gr.Plot(label="Task Status Pie Chart")
 
         with gr.Accordion("🛑 Failed Tasks", open=False):
-            collection_selector = gr.Dropdown(choices=collections_list, label="Select Collection")
-            load_btn = gr.Button("🔄 Load Failed Tasks")
+            failed_collections_df = gr.Dataframe(label="Collections", interactive=False)
             failed_tasks_df = gr.Dataframe(label="Failed Tasks", interactive=False)
 
     # === Detail section (hidden initially) ===
@@ -99,9 +105,12 @@ with dashboard:
     # === Functions ===
     def load_summary_on_start():
         summary, successes, failures = build_summary_from_analytics()
-        return summary, make_pie_chart(successes, failures)
+        collections_df = pd.DataFrame({"Collection": collections_list})
+        return summary, make_pie_chart(successes, failures), collections_df
 
-    def load_failed_tasks(collection_name):
+
+    def load_failed_tasks_on_select(evt: gr.SelectData):
+        collection_name = collections_list[evt.index[0]]
         tasks = fetch_all_tasks(collection_name)
         failed_df = pd.DataFrame([
             {
@@ -129,13 +138,6 @@ with dashboard:
         empty_df = pd.DataFrame()
         return [empty_df] * 5 + [gr.update(visible=True), gr.update(visible=False)]
 
-    # === Bind Events ===
-    load_btn.click(
-        load_failed_tasks,
-        inputs=[collection_selector],
-        outputs=[state_failed_tasks, failed_tasks_df, state_current_collection]
-    )
-
     failed_tasks_df.select(
         on_task_select,
         inputs=[state_failed_tasks, state_current_collection],
@@ -157,7 +159,15 @@ with dashboard:
     dashboard.load(
         load_summary_on_start,
         inputs=[],
-        outputs=[summary_df, pie_plot]
+        outputs=[summary_df, pie_plot, failed_collections_df]
     )
+
+
+    failed_collections_df.select(
+        load_failed_tasks_on_select,
+        inputs=[],
+        outputs=[state_failed_tasks, failed_tasks_df, state_current_collection]
+    )
+
 
 dashboard.launch()
