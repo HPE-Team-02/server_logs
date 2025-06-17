@@ -49,15 +49,34 @@ def show_task_details(collection_name, task_id):
     doc = db[collection_name].find_one({"_id": ObjectId(task_id)})
     if not doc:
         return [pd.DataFrame()] * 5
-    components = pd.DataFrame(doc.get("Components", []))
-    if "deviceClass" in components.columns:
-        components.drop(columns=["deviceClass"], inplace=True)
+
+    all_components = doc.get("Components", [])
+    failed_names = doc.get("Failed Components", [])
+
+    if not isinstance(failed_names, list):
+        failed_names = [failed_names]
+
+    failed_names_clean = set(fn.strip() for fn in failed_names if fn)
+
+    # Match component FileNames to failed names exactly (case-sensitive)
+    filtered_components = [
+        comp for comp in all_components
+        if comp.get("FileName", "").strip() in failed_names_clean
+    ]
+
+    print("DEBUG: Failed names from DB:", failed_names_clean)
+    print("DEBUG: Matched FileNames:", [comp.get("FileName") for comp in filtered_components])
+
+    # Clean DataFrame — force it to start fresh
+    columns = ["FileName", "Installed Version", "To Version", "TargetGUID"]
+    components_df = pd.DataFrame(filtered_components)[columns] if filtered_components else pd.DataFrame([], columns=columns)
+
     return (
         dict_to_df(doc.get("OneView", {})),
         dict_to_df(doc.get("Server", {})),
         dict_to_df(doc.get("Firmware Update", {})),
         dict_to_df(doc.get("Install set Response", {})),
-        components
+        components_df
     )
 
 def make_pie_chart(successes, failures):
@@ -98,6 +117,7 @@ with dashboard:
         components_df = gr.Dataframe(label="Components", interactive=False)
         back_button = gr.Button("🔙 Back to Summary")
 
+
     # === State ===
     state_failed_tasks = gr.State()
     state_current_collection = gr.State()
@@ -115,8 +135,7 @@ with dashboard:
         failed_df = pd.DataFrame([
             {
                 "_id": str(task["_id"]),
-                "Task": task.get("Server", {}).get("Task ID", "N/A"),
-                "Component Count": len(task.get("Components", []))
+                "Component Count": task.get("Number of Failed Components", 0)
             } for task in tasks
         ])
         return (
@@ -128,11 +147,18 @@ with dashboard:
         df = pd.DataFrame(tasks_dict)
         row_index = evt.index[0]
         task_id = df.at[row_index, "_id"]
+        oneview, server, firmware, install, components = show_task_details(collection_name, task_id)
+
+        # Show filtered component filenames for debugging in UI
+        debug_info = pd.DataFrame({"Filtered FileNames": list(components["FileName"])})
+
         return (
-            *show_task_details(collection_name, task_id),
-            gr.update(visible=False),  # Hide summary
-            gr.update(visible=True)    # Show details
+            oneview, server, firmware, install, components,
+            gr.update(visible=False),
+            gr.update(visible=True),
+            debug_info  # <-- Add this
         )
+
 
     def back_to_summary():
         empty_df = pd.DataFrame()
