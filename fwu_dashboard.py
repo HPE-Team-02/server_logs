@@ -58,7 +58,6 @@ def show_task_details(collection_name, task_id):
 
     failed_names_clean = set(fn.strip() for fn in failed_names if fn)
 
-    # Match component FileNames to failed names exactly (case-sensitive)
     filtered_components = [
         comp for comp in all_components
         if comp.get("FileName", "").strip() in failed_names_clean
@@ -67,7 +66,6 @@ def show_task_details(collection_name, task_id):
     print("DEBUG: Failed names from DB:", failed_names_clean)
     print("DEBUG: Matched FileNames:", [comp.get("FileName") for comp in filtered_components])
 
-    # Clean DataFrame — force it to start fresh
     columns = ["FileName", "Installed Version", "To Version", "TargetGUID"]
     components_df = pd.DataFrame(filtered_components)[columns] if filtered_components else pd.DataFrame([], columns=columns)
 
@@ -96,16 +94,14 @@ dashboard = gr.Blocks(theme=gr.themes.Soft())
 with dashboard:
     gr.Markdown("## 📊 Firmware Update Summary Dashboard")
 
-    # === Summary section (visible on load) ===
     with gr.Column(visible=True) as summary_section:
         summary_df = gr.Dataframe(label="Task Summary", interactive=False)
         pie_plot = gr.Plot(label="Task Status Pie Chart")
 
-        with gr.Accordion("🛑 Failed Tasks", open=False):
+        with gr.Accordion("Task Information", open=False):
             failed_collections_df = gr.Dataframe(label="Collections", interactive=False)
-            failed_tasks_df = gr.Dataframe(label="Failed Tasks", interactive=False)
+            failed_tasks_df = gr.Dataframe(label="Task Details", interactive=False)
 
-    # === Detail section (hidden initially) ===
     with gr.Column(visible=False) as detail_section:
         gr.Markdown("### 📂 Selected Task Info")
         with gr.Row():
@@ -117,27 +113,31 @@ with dashboard:
         components_df = gr.Dataframe(label="Components", interactive=False)
         back_button = gr.Button("🔙 Back to Summary")
 
-
-    # === State ===
     state_failed_tasks = gr.State()
     state_current_collection = gr.State()
 
-    # === Functions ===
     def load_summary_on_start():
         summary, successes, failures = build_summary_from_analytics()
         collections_df = pd.DataFrame({"Collection": collections_list})
         return summary, make_pie_chart(successes, failures), collections_df
 
-
     def load_failed_tasks_on_select(evt: gr.SelectData):
         collection_name = collections_list[evt.index[0]]
         tasks = fetch_all_tasks(collection_name)
-        failed_df = pd.DataFrame([
-            {
-                "_id": str(task["_id"]),
-                "Component Count": task.get("Number of Failed Components", 0)
-            } for task in tasks
-        ])
+        failed_data = []
+        for task in tasks:
+            ts_obj = task.get("Failed Timestamps", {})
+            if isinstance(ts_obj, dict) and ts_obj:
+                first_key = next(iter(ts_obj))
+                timestamp = ts_obj[first_key]
+            else:
+                timestamp = ""
+            failed_data.append({
+                "Task ID": str(task["_id"]),
+                "Number of Failed Components": task.get("Number of Failed Components", 0),
+                "Timestamp of Failure": timestamp
+            })
+        failed_df = pd.DataFrame(failed_data)
         return (
             failed_df.to_dict(), failed_df,
             collection_name
@@ -146,29 +146,25 @@ with dashboard:
     def on_task_select(evt: gr.SelectData, tasks_dict, collection_name):
         df = pd.DataFrame(tasks_dict)
         row_index = evt.index[0]
-        task_id = df.at[row_index, "_id"]
+        task_id = df.at[row_index, "Task ID"]
         oneview, server, firmware, install, components = show_task_details(collection_name, task_id)
-
-        # Show filtered component filenames for debugging in UI
-        debug_info = pd.DataFrame({"Filtered FileNames": list(components["FileName"])})
-
         return (
-            oneview, server, firmware, install, components,
+            oneview, server, firmware, install,
+            gr.update(value=components, visible=not components.empty),
             gr.update(visible=False),
-            gr.update(visible=True),
-            debug_info  # <-- Add this
+            gr.update(visible=True)
         )
-
 
     def back_to_summary():
         empty_df = pd.DataFrame()
-        return [empty_df] * 5 + [gr.update(visible=True), gr.update(visible=False)]
+        return [empty_df] * 4 + [gr.update(value=empty_df, visible=False), gr.update(visible=True), gr.update(visible=False)]
 
     failed_tasks_df.select(
         on_task_select,
         inputs=[state_failed_tasks, state_current_collection],
         outputs=[
-            oneview_df, server_df, firmware_df, install_df, components_df,
+            oneview_df, server_df, firmware_df, install_df,
+            components_df,
             summary_section, detail_section
         ]
     )
@@ -177,7 +173,8 @@ with dashboard:
         back_to_summary,
         inputs=[],
         outputs=[
-            oneview_df, server_df, firmware_df, install_df, components_df,
+            oneview_df, server_df, firmware_df, install_df,
+            components_df,
             summary_section, detail_section
         ]
     )
@@ -187,7 +184,6 @@ with dashboard:
         inputs=[],
         outputs=[summary_df, pie_plot, failed_collections_df]
     )
-
 
     failed_collections_df.select(
         load_failed_tasks_on_select,
